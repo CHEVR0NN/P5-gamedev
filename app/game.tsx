@@ -1,17 +1,20 @@
 import { Text, View, TouchableWithoutFeedback, Dimensions, StyleSheet, Animated, Image, TouchableOpacity } from "react-native";
 import React, { useState, useEffect, useRef } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 const GRAVITY = 2;
 const JUMP_FORCE = -20;
 const PIPE_WIDTH = 80;
-const PIPE_GAP = 200;
+const PIPE_GAP = 250;
 const PIPE_SPEED = 5;
+const MAX_ROTATION = 50;
 
 export default function Index() {
   const router = useRouter();
+  const { playerName } = useLocalSearchParams(); 
   const [birdY, setBirdY] = useState(SCREEN_HEIGHT / 2);
   const [velocity, setVelocity] = useState(0);
   const [pipes, setPipes] = useState([{ x: SCREEN_WIDTH, height: Math.random() * (SCREEN_HEIGHT - PIPE_GAP) }]);
@@ -38,7 +41,10 @@ export default function Index() {
   }, []);
 
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver) {
+      saveScore(playerName as string, score); 
+      return;
+    }
 
     const gameLoop = setInterval(() => {
       setVelocity((prev) => prev + GRAVITY);
@@ -71,14 +77,52 @@ export default function Index() {
     return () => clearInterval(gameLoop);
   }, [birdY, pipes, gameOver]);
 
+  const birdRotation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    birdRotation.setValue(Math.min((velocity / JUMP_FORCE) * MAX_ROTATION, MAX_ROTATION));
+  }, [velocity]);
+
   const jump = () => {
-    if (!gameOver) setVelocity(JUMP_FORCE);
-    else {
+    if (!gameOver) {
+      setVelocity(JUMP_FORCE);
+    } else {
       setGameOver(false);
       setBirdY(SCREEN_HEIGHT / 2);
       setVelocity(0);
       setPipes([{ x: SCREEN_WIDTH, height: Math.random() * (SCREEN_HEIGHT - PIPE_GAP) }]);
       setScore(0);
+    }
+  };
+
+  const birdRotationStyle = {
+    transform: [
+      {
+        rotate: birdRotation.interpolate({
+          inputRange: [-MAX_ROTATION, MAX_ROTATION],
+          outputRange: ["25deg", "0deg"],
+        }),
+      },
+    ],
+  };
+
+  const saveScore = async (name: string, score: number) => {
+    try {
+      const storedScores = await AsyncStorage.getItem("leaderboard");
+      const scores = storedScores ? JSON.parse(storedScores) : [];
+      const existingPlayerIndex = scores.findIndex((entry: { name: string; score: number }) => entry.name === name);
+  
+      if (existingPlayerIndex !== -1) {
+        if (score > scores[existingPlayerIndex].score) {
+          scores[existingPlayerIndex].score = score;
+        }
+      } else {
+        scores.push({ name, score });
+      }
+  
+      await AsyncStorage.setItem("leaderboard", JSON.stringify(scores));
+    } catch (error) {
+      console.error("Error hehe", error);
     }
   };
 
@@ -103,51 +147,55 @@ export default function Index() {
             <Image source={require("../assets/images/cloud.png")} style={styles.cloudImage} resizeMode="contain" />
           </Animated.View>
         ))}
-        <Image
+        <Animated.Image
           source={require("../assets/images/bee.png")}
-          style={[styles.bird, { top: birdY }]}
+          style={[styles.bird, birdRotationStyle, { top: birdY }]}
           resizeMode="contain"
         />
 
-        {/* pipes */}
         {pipes.map((pipe, index) => (
-        <React.Fragment key={index}>
-          {/* taas */}
-          {Array.from({ length: Math.ceil(pipe.height / PIPE_WIDTH) }).map((_, i) => (
-            <Image
-              key={`top-${index}-${i}`}
-              source={require("../assets/images/flowerpipe.png")}
-              style={[
-                styles.pipeSegment,
-                {
-                  left: pipe.x,
-                  top: i * PIPE_WIDTH,
-                  transform: [{ rotate: "180deg" }],
-                },
-              ]}
-              resizeMode="contain"
-            />
-          ))}
-          {/* bottom */}
-          {Array.from({ length: Math.ceil((SCREEN_HEIGHT - pipe.height - PIPE_GAP) / PIPE_WIDTH) }).map((_, i) => (
-            <Image
-              key={`bottom-${index}-${i}`}
-              source={require("../assets/images/flowerpipe.png")}
-              style={[
-                styles.pipeSegment,
-                {
-                  left: pipe.x,
-                  top: pipe.height + PIPE_GAP + i * PIPE_WIDTH,
-                },
-              ]}
-              resizeMode="contain"
-            />
-          ))}
-        </React.Fragment>
-      ))}
+          <React.Fragment key={index}>
+            {Array.from({ length: Math.ceil(pipe.height / PIPE_WIDTH) }).map((_, i) => (
+              <Image
+                key={`top-${index}-${i}`}
+                source={require("../assets/images/flowerpipe.png")}
+                style={[
+                  styles.pipeSegment,
+                  {
+                    left: pipe.x,
+                    top: i * PIPE_WIDTH,
+                    transform: [{ rotate: "180deg" }],
+                  },
+                ]}
+                resizeMode="contain"
+              />
+            ))}
+            {Array.from({ length: Math.ceil((SCREEN_HEIGHT - pipe.height - PIPE_GAP) / PIPE_WIDTH) }).map((_, i) => (
+              <Image
+                key={`bottom-${index}-${i}`}
+                source={require("../assets/images/flowerpipe.png")}
+                style={[
+                  styles.pipeSegment,
+                  {
+                    left: pipe.x,
+                    top: pipe.height + PIPE_GAP + i * PIPE_WIDTH,
+                  },
+                ]}
+                resizeMode="contain"
+              />
+            ))}
+          </React.Fragment>
+        ))}
 
         <Text style={styles.score}>{score}</Text>
-        {gameOver && <Text style={styles.gameOver}>Game over irestart mo n</Text>}
+        {gameOver && (
+          <>
+            <Text style={styles.gameOver}>--- GAME OVER ---</Text>
+            <TouchableOpacity style={styles.restartButton} onPress={() => router.push("/leaderboards")}>
+              <Text style={styles.restartButtonText}>View Leaderboard</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </TouchableWithoutFeedback>
   );
@@ -179,15 +227,11 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   bird: {
-    width: SCREEN_WIDTH * 0.15,
-    height: SCREEN_WIDTH * 0.15,
+    width: SCREEN_WIDTH * 0.12,
+    height: SCREEN_WIDTH * 0.12,
     position: "absolute",
     left: SCREEN_WIDTH / 2 - (SCREEN_WIDTH * 0.1) / 2,
-  },
-  pipe: {
-    position: "absolute",
-    width: PIPE_WIDTH,
-    height: PIPE_WIDTH,
+    // borderWidth: 1, test q lng hitbox
   },
   pipeSegment: {
     position: "absolute",
@@ -210,12 +254,29 @@ const styles = StyleSheet.create({
   gameOver: {
     position: "absolute",
     top: SCREEN_HEIGHT / 2 - 30,
-    fontSize: 24,
-    color: "#fff",
-    fontWeight: "600",
+    fontSize: 40,
+    color: "#000",
+    fontWeight: "700",
     fontFamily: "PixelifySans",
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 12,
+    textAlign: "center",
+    backgroundColor: "#ffffff99",
+    width: SCREEN_WIDTH * 1,
+    
+  },
+  restartButton: {
+    position: "absolute",
+    top: SCREEN_HEIGHT / 2 + 30,
+    backgroundColor: "#ff4a4a99",
+    alignItems: "center",
+    width: SCREEN_WIDTH * 1,
+    padding: 10,
+  },
+  restartButtonText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+    // width: "100%",
   },
 });
