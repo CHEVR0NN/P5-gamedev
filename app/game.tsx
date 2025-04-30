@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     backgroundColor: "#ffffff99",
     width: SCREEN_WIDTH * 1,
-    
+    animationDelay: "0.5s",
   },
   restartButton: {
     position: "absolute",
